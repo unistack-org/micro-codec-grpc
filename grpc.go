@@ -2,26 +2,50 @@
 package grpc
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/micro/go-micro/v3/codec"
+	// nolint: staticcheck
+	oldjsonpb "github.com/golang/protobuf/jsonpb"
+	// nolint: staticcheck
+	oldproto "github.com/golang/protobuf/proto"
+	"github.com/unistack-org/micro/v3/codec"
+	jsonpb "google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
-type Codec struct {
-	Conn        io.ReadWriteCloser
+var (
+	JsonpbMarshaler = jsonpb.MarshalOptions{
+		UseEnumNumbers:  false,
+		EmitUnpopulated: false,
+		UseProtoNames:   true,
+		AllowPartial:    false,
+	}
+
+	JsonpbUnmarshaler = jsonpb.UnmarshalOptions{
+		DiscardUnknown: false,
+		AllowPartial:   false,
+	}
+
+	OldJsonpbMarshaler = oldjsonpb.Marshaler{
+		OrigName:     true,
+		EmitDefaults: false,
+	}
+
+	OldJsonpbUnmarshaler = oldjsonpb.Unmarshaler{
+		AllowUnknownFields: false,
+	}
+)
+
+type grpcCodec struct {
 	ContentType string
 }
 
-func (c *Codec) ReadHeader(m *codec.Message, t codec.MessageType) error {
-	if ct := m.Header["Content-Type"]; len(ct) > 0 {
-		c.ContentType = ct
-	}
-
+func (c *grpcCodec) ReadHeader(conn io.Reader, m *codec.Message, t codec.MessageType) error {
 	if ct := m.Header["content-type"]; len(ct) > 0 {
 		c.ContentType = ct
 	}
@@ -45,34 +69,106 @@ func (c *Codec) ReadHeader(m *codec.Message, t codec.MessageType) error {
 	return nil
 }
 
-func (c *Codec) ReadBody(b interface{}) error {
+func (c *grpcCodec) Unmarshal(d []byte, b interface{}) error {
+	if d == nil {
+		return nil
+	}
+
+	switch v := b.(type) {
+	case nil:
+		return nil
+	default:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return json.Unmarshal(d, v)
+		}
+	case oldproto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return OldJsonpbUnmarshaler.Unmarshal(bytes.NewReader(d), v)
+		case "application/grpc+proto", "application/grpc":
+			return oldproto.Unmarshal(d, v)
+		}
+	case proto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return JsonpbUnmarshaler.Unmarshal(d, v)
+		case "application/grpc+proto", "application/grpc":
+			return proto.Unmarshal(d, v)
+		}
+	}
+
+	return codec.ErrInvalidMessage
+}
+
+func (c *grpcCodec) Marshal(b interface{}) ([]byte, error) {
+	switch m := b.(type) {
+	case nil:
+		return nil, nil
+	case proto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return JsonpbMarshaler.Marshal(m)
+		case "application/grpc+proto", "application/grpc":
+			return proto.Marshal(m)
+		}
+	case oldproto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			str, err := OldJsonpbMarshaler.MarshalToString(m)
+			return []byte(str), err
+		case "application/grpc+proto", "application/grpc":
+			return oldproto.Marshal(m)
+		}
+	default:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return json.Marshal(m)
+		}
+	}
+
+	return nil, codec.ErrUnknownContentType
+}
+
+func (c *grpcCodec) ReadBody(conn io.Reader, b interface{}) error {
 	// no body
 	if b == nil {
 		return nil
 	}
 
-	_, buf, err := decode(c.Conn)
+	_, buf, err := c.decode(conn)
 	if err != nil {
 		return err
 	}
 
-	switch c.ContentType {
-	case "application/grpc+json":
-		return json.Unmarshal(buf, b)
-	case "application/grpc+proto", "application/grpc":
-		return proto.Unmarshal(buf, b.(proto.Message))
+	switch v := b.(type) {
+	default:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return json.Unmarshal(buf, v)
+		}
+	case oldproto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return OldJsonpbUnmarshaler.Unmarshal(bytes.NewReader(buf), v)
+		case "application/grpc+proto", "application/grpc":
+			return oldproto.Unmarshal(buf, v)
+		}
+	case proto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			return JsonpbUnmarshaler.Unmarshal(buf, v)
+		case "application/grpc+proto", "application/grpc":
+			return proto.Unmarshal(buf, v)
+		}
 	}
 
-	return errors.New("Unsupported Content-Type")
+	return codec.ErrUnknownContentType
 }
 
-func (c *Codec) Write(m *codec.Message, b interface{}) error {
+func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, b interface{}) error {
 	var buf []byte
 	var err error
-
-	if ct := m.Header["Content-Type"]; len(ct) > 0 {
-		c.ContentType = ct
-	}
 
 	if ct := m.Header["content-type"]; len(ct) > 0 {
 		c.ContentType = ct
@@ -107,17 +203,35 @@ func (c *Codec) Write(m *codec.Message, b interface{}) error {
 		return nil
 	}
 
-	// marshal content
-	switch c.ContentType {
-	case "application/grpc+json":
-		buf, err = json.Marshal(b)
-	case "application/grpc+proto", "application/grpc":
-		pb, ok := b.(proto.Message)
-		if ok {
-			buf, err = proto.Marshal(pb)
+	switch m := b.(type) {
+	case proto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			buf, err = JsonpbMarshaler.Marshal(m)
+		case "application/grpc+proto", "application/grpc":
+			buf, err = proto.Marshal(m)
+		default:
+			err = codec.ErrUnknownContentType
+		}
+	case oldproto.Message:
+		switch c.ContentType {
+		case "application/grpc+json":
+			var str string
+			str, err = OldJsonpbMarshaler.MarshalToString(m)
+			buf = []byte(str)
+		case "application/grpc+proto", "application/grpc":
+			buf, err = oldproto.Marshal(m)
+		default:
+			err = codec.ErrUnknownContentType
 		}
 	default:
-		err = errors.New("Unsupported Content-Type")
+		switch c.ContentType {
+		case "application/grpc+json":
+			buf, err = json.Marshal(m)
+		default:
+			err = codec.ErrUnknownContentType
+		}
+
 	}
 	// check error
 	if err != nil {
@@ -130,20 +244,13 @@ func (c *Codec) Write(m *codec.Message, b interface{}) error {
 		return nil
 	}
 
-	return encode(0, buf, c.Conn)
+	return c.encode(0, buf, conn)
 }
 
-func (c *Codec) Close() error {
-	return c.Conn.Close()
-}
-
-func (c *Codec) String() string {
+func (c *grpcCodec) String() string {
 	return "grpc"
 }
 
-func NewCodec(c io.ReadWriteCloser) codec.Codec {
-	return &Codec{
-		Conn:        c,
-		ContentType: "application/grpc",
-	}
+func NewCodec() codec.Codec {
+	return &grpcCodec{ContentType: "application/grpc"}
 }

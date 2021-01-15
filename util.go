@@ -4,14 +4,15 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/unistack-org/micro/v3/codec"
 )
 
 var (
-	MaxMessageSize = 1024 * 1024 * 4 // 4Mb
-	maxInt         = int(^uint(0) >> 1)
+	maxInt = int(^uint(0) >> 1)
 )
 
-func decode(r io.Reader) (uint8, []byte, error) {
+func (c *grpcCodec) decode(r io.Reader) (uint8, []byte, error) {
 	header := make([]byte, 5)
 
 	// read the header
@@ -34,8 +35,8 @@ func decode(r io.Reader) (uint8, []byte, error) {
 	if int64(length) > int64(maxInt) {
 		return cf, nil, fmt.Errorf("grpc: received message larger than max length allowed on current machine (%d vs. %d)", length, maxInt)
 	}
-	if int(length) > MaxMessageSize {
-		return cf, nil, fmt.Errorf("grpc: received message larger than max (%d vs. %d)", length, MaxMessageSize)
+	if int(length) > codec.DefaultMaxMsgSize {
+		return cf, nil, fmt.Errorf("grpc: received message larger than max (%d vs. %d)", length, codec.DefaultMaxMsgSize)
 	}
 
 	msg := make([]byte, int(length))
@@ -50,7 +51,7 @@ func decode(r io.Reader) (uint8, []byte, error) {
 	return cf, msg, nil
 }
 
-func encode(cf uint8, buf []byte, w io.Writer) error {
+func (c *grpcCodec) encode(cf uint8, buf []byte, w io.Writer) error {
 	header := make([]byte, 5)
 
 	// set compression
