@@ -13,7 +13,6 @@ import (
 	oldjsonpb "github.com/golang/protobuf/jsonpb"
 	// nolint: staticcheck
 	oldproto "github.com/golang/protobuf/proto"
-	mproto "github.com/unistack-org/micro-proto/proto"
 	"github.com/unistack-org/micro/v3/codec"
 	jsonpb "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -85,8 +84,6 @@ func (c *grpcCodec) Unmarshal(d []byte, b interface{}) error {
 		}
 	case *codec.Frame:
 		v.Data = d
-	case *mproto.Frame:
-		v.Data = d
 	case oldproto.Message:
 		switch c.ContentType {
 		case "application/grpc+json":
@@ -110,8 +107,6 @@ func (c *grpcCodec) Marshal(b interface{}) ([]byte, error) {
 	switch m := b.(type) {
 	case nil:
 		return nil, nil
-	case *mproto.Frame:
-		return m.Data, nil
 	case *codec.Frame:
 		return m.Data, nil
 	case proto.Message:
@@ -156,8 +151,6 @@ func (c *grpcCodec) ReadBody(conn io.Reader, b interface{}) error {
 		case "application/grpc+json":
 			return json.Unmarshal(buf, v)
 		}
-	case *mproto.Frame:
-		v.Data = buf
 	case *codec.Frame:
 		v.Data = buf
 	case oldproto.Message:
@@ -218,8 +211,6 @@ func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, b interface{}) error
 
 	switch m := b.(type) {
 	case *codec.Frame:
-		buf = m.Data
-	case *mproto.Frame:
 		buf = m.Data
 	case proto.Message:
 		switch c.ContentType {
