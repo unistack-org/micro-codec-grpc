@@ -2,17 +2,12 @@
 package grpc
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	// nolint: staticcheck
-	oldjsonpb "github.com/golang/protobuf/jsonpb"
-	// nolint: staticcheck
-	oldproto "github.com/golang/protobuf/proto"
 	"github.com/unistack-org/micro/v3/codec"
 	jsonpb "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -29,15 +24,6 @@ var (
 	JsonpbUnmarshaler = jsonpb.UnmarshalOptions{
 		DiscardUnknown: false,
 		AllowPartial:   false,
-	}
-
-	OldJsonpbMarshaler = oldjsonpb.Marshaler{
-		OrigName:     true,
-		EmitDefaults: false,
-	}
-
-	OldJsonpbUnmarshaler = oldjsonpb.Unmarshaler{
-		AllowUnknownFields: false,
 	}
 )
 
@@ -84,13 +70,6 @@ func (c *grpcCodec) Unmarshal(d []byte, b interface{}) error {
 		}
 	case *codec.Frame:
 		v.Data = d
-	case oldproto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return OldJsonpbUnmarshaler.Unmarshal(bytes.NewReader(d), v)
-		case "application/grpc+proto", "application/grpc":
-			return oldproto.Unmarshal(d, v)
-		}
 	case proto.Message:
 		switch c.ContentType {
 		case "application/grpc+json":
@@ -115,14 +94,6 @@ func (c *grpcCodec) Marshal(b interface{}) ([]byte, error) {
 			return JsonpbMarshaler.Marshal(m)
 		case "application/grpc+proto", "application/grpc":
 			return proto.Marshal(m)
-		}
-	case oldproto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			str, err := OldJsonpbMarshaler.MarshalToString(m)
-			return []byte(str), err
-		case "application/grpc+proto", "application/grpc":
-			return oldproto.Marshal(m)
 		}
 	default:
 		switch c.ContentType {
@@ -153,13 +124,6 @@ func (c *grpcCodec) ReadBody(conn io.Reader, b interface{}) error {
 		}
 	case *codec.Frame:
 		v.Data = buf
-	case oldproto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return OldJsonpbUnmarshaler.Unmarshal(bytes.NewReader(buf), v)
-		case "application/grpc+proto", "application/grpc":
-			return oldproto.Unmarshal(buf, v)
-		}
 	case proto.Message:
 		switch c.ContentType {
 		case "application/grpc+json":
@@ -218,17 +182,6 @@ func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, b interface{}) error
 			buf, err = JsonpbMarshaler.Marshal(m)
 		case "application/grpc+proto", "application/grpc":
 			buf, err = proto.Marshal(m)
-		default:
-			err = codec.ErrUnknownContentType
-		}
-	case oldproto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			var str string
-			str, err = OldJsonpbMarshaler.MarshalToString(m)
-			buf = []byte(str)
-		case "application/grpc+proto", "application/grpc":
-			buf, err = oldproto.Marshal(m)
 		default:
 			err = codec.ErrUnknownContentType
 		}
