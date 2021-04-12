@@ -20,7 +20,7 @@ func (c *grpcCodec) decode(r io.Reader) (uint8, []byte, error) {
 		if err == io.EOF && n == 0 {
 			return 0, nil, nil
 		}
-		return uint8(0), nil, err
+		return 0, nil, err
 	}
 
 	// get encoding format e.g compressed

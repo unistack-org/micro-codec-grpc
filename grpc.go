@@ -56,7 +56,7 @@ func (c *grpcCodec) ReadHeader(conn io.Reader, m *codec.Message, t codec.Message
 }
 
 func (c *grpcCodec) Unmarshal(d []byte, b interface{}) error {
-	if d == nil {
+	if len(d) == 0 {
 		return nil
 	}
 
