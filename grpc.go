@@ -111,9 +111,11 @@ func (c *grpcCodec) ReadBody(conn io.Reader, b interface{}) error {
 		return nil
 	}
 
-	_, buf, err := c.decode(conn)
+	n, buf, err := c.decode(conn)
 	if err != nil {
 		return err
+	} else if n == 0 {
+		return nil
 	}
 
 	switch v := b.(type) {

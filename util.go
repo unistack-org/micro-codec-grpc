@@ -16,7 +16,10 @@ func (c *grpcCodec) decode(r io.Reader) (uint8, []byte, error) {
 	header := make([]byte, 5)
 
 	// read the header
-	if _, err := r.Read(header[:]); err != nil {
+	if n, err := r.Read(header[:]); err != nil {
+		if err == io.EOF && n == 0 {
+			return 0, nil, nil
+		}
 		return uint8(0), nil, err
 	}
 
