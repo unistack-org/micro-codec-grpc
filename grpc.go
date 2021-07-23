@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/unistack-org/micro/v3/codec"
+	"github.com/unistack-org/micro/v3/metadata"
 	jsonpb "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -39,8 +40,8 @@ func (c *grpcCodec) ReadHeader(conn io.Reader, m *codec.Message, t codec.Message
 	// service method
 	path := m.Header[":path"]
 	if len(path) == 0 || path[0] != '/' {
-		m.Target = m.Header["Micro-Service"]
-		m.Endpoint = m.Header["Micro-Endpoint"]
+		m.Target = m.Header[metadata.HeaderService]
+		m.Endpoint = m.Header[metadata.HeaderEndpoint]
 	} else {
 		// [ , a.package.Foo, Bar]
 		parts := strings.Split(path, "/")
