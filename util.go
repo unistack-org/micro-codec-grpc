@@ -8,9 +8,7 @@ import (
 	"github.com/unistack-org/micro/v3/codec"
 )
 
-var (
-	maxInt = int(^uint(0) >> 1)
-)
+var maxInt = int(^uint(0) >> 1)
 
 func (c *grpcCodec) decode(r io.Reader) (uint8, []byte, error) {
 	header := make([]byte, 5)
@@ -63,7 +61,7 @@ func (c *grpcCodec) encode(cf uint8, buf []byte, w io.Writer) error {
 	// write length as header
 	binary.BigEndian.PutUint32(header[1:], uint32(len(buf)))
 
-	// read the header
+	// write the header
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}

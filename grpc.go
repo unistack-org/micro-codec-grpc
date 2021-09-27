@@ -10,25 +10,35 @@ import (
 
 	"github.com/unistack-org/micro/v3/codec"
 	"github.com/unistack-org/micro/v3/metadata"
+	rutil "github.com/unistack-org/micro/v3/util/reflect"
 	jsonpb "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
 var (
-	JsonpbMarshaler = jsonpb.MarshalOptions{
+	DefaultMarshalOptions = jsonpb.MarshalOptions{
 		UseEnumNumbers:  false,
 		EmitUnpopulated: false,
 		UseProtoNames:   true,
 		AllowPartial:    false,
 	}
 
-	JsonpbUnmarshaler = jsonpb.UnmarshalOptions{
+	DefaultUnmarshalOptions = jsonpb.UnmarshalOptions{
 		DiscardUnknown: false,
 		AllowPartial:   false,
 	}
 )
 
+type jsonpbCodec struct {
+	opts codec.Options
+}
+
+const (
+	flattenTag = "flatten"
+)
+
 type grpcCodec struct {
+	opts        codec.Options
 	ContentType string
 }
 
@@ -56,59 +66,96 @@ func (c *grpcCodec) ReadHeader(conn io.Reader, m *codec.Message, t codec.Message
 	return nil
 }
 
-func (c *grpcCodec) Unmarshal(d []byte, b interface{}) error {
-	if len(d) == 0 {
+func (c *grpcCodec) Unmarshal(d []byte, v interface{}, opts ...codec.Option) error {
+	if v == nil || len(d) == 0 {
 		return nil
 	}
 
-	switch v := b.(type) {
-	case nil:
+	options := c.opts
+	for _, o := range opts {
+		o(&options)
+	}
+
+	if nv, nerr := rutil.StructFieldByTag(v, options.TagName, flattenTag); nerr == nil {
+		v = nv
+	}
+
+	if m, ok := v.(*codec.Frame); ok {
+		m.Data = d
 		return nil
-	default:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return json.Unmarshal(d, v)
+	}
+
+	if c.ContentType == "application/grpc+json" {
+		return json.Unmarshal(d, v)
+	}
+
+	if _, ok := v.(proto.Message); !ok {
+		return codec.ErrInvalidMessage
+	}
+
+	unmarshalOptions := DefaultUnmarshalOptions
+	if options.Context != nil {
+		if f, ok := options.Context.Value(unmarshalOptionsKey{}).(jsonpb.UnmarshalOptions); ok {
+			unmarshalOptions = f
 		}
-	case *codec.Frame:
-		v.Data = d
-	case proto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return JsonpbUnmarshaler.Unmarshal(d, v)
-		case "application/grpc+proto", "application/grpc":
-			return proto.Unmarshal(d, v)
-		}
+	}
+
+	switch c.ContentType {
+	case "application/grpc+json":
+		return unmarshalOptions.Unmarshal(d, v.(proto.Message))
+	case "application/grpc+proto", "application/grpc":
+		return proto.Unmarshal(d, v.(proto.Message))
 	}
 
 	return codec.ErrInvalidMessage
 }
 
-func (c *grpcCodec) Marshal(b interface{}) ([]byte, error) {
-	switch m := b.(type) {
-	case nil:
+func (c *grpcCodec) Marshal(v interface{}, opts ...codec.Option) ([]byte, error) {
+	if v == nil {
 		return nil, nil
-	case *codec.Frame:
+	}
+
+	options := c.opts
+	for _, o := range opts {
+		o(&options)
+	}
+
+	if nv, nerr := rutil.StructFieldByTag(v, options.TagName, flattenTag); nerr == nil {
+		v = nv
+	}
+
+	if m, ok := v.(*codec.Frame); ok {
 		return m.Data, nil
-	case proto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return JsonpbMarshaler.Marshal(m)
-		case "application/grpc+proto", "application/grpc":
-			return proto.Marshal(m)
+	}
+
+	if c.ContentType == "application/grpc+json" {
+		return json.Marshal(v)
+	}
+
+	if _, ok := v.(proto.Message); !ok {
+		return nil, codec.ErrInvalidMessage
+	}
+
+	marshalOptions := DefaultMarshalOptions
+	if options.Context != nil {
+		if f, ok := options.Context.Value(marshalOptionsKey{}).(jsonpb.MarshalOptions); ok {
+			marshalOptions = f
 		}
-	default:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return json.Marshal(m)
-		}
+	}
+
+	switch c.ContentType {
+	case "application/grpc+json":
+		return marshalOptions.Marshal(v.(proto.Message))
+	case "application/grpc+proto", "application/grpc":
+		return proto.Marshal(v.(proto.Message))
 	}
 
 	return nil, codec.ErrUnknownContentType
 }
 
-func (c *grpcCodec) ReadBody(conn io.Reader, b interface{}) error {
+func (c *grpcCodec) ReadBody(conn io.Reader, v interface{}) error {
 	// no body
-	if b == nil {
+	if v == nil {
 		return nil
 	}
 
@@ -119,30 +166,10 @@ func (c *grpcCodec) ReadBody(conn io.Reader, b interface{}) error {
 		return nil
 	}
 
-	switch v := b.(type) {
-	default:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return json.Unmarshal(buf, v)
-		}
-	case *codec.Frame:
-		v.Data = buf
-	case proto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			return JsonpbUnmarshaler.Unmarshal(buf, v)
-		case "application/grpc+proto", "application/grpc":
-			return proto.Unmarshal(buf, v)
-		}
-	}
-
-	return codec.ErrUnknownContentType
+	return c.Unmarshal(buf, v)
 }
 
-func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, b interface{}) error {
-	var buf []byte
-	var err error
-
+func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, v interface{}) error {
 	if ct := m.Header["content-type"]; len(ct) > 0 {
 		c.ContentType = ct
 	}
@@ -176,28 +203,7 @@ func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, b interface{}) error
 		return nil
 	}
 
-	switch m := b.(type) {
-	case *codec.Frame:
-		buf = m.Data
-	case proto.Message:
-		switch c.ContentType {
-		case "application/grpc+json":
-			buf, err = JsonpbMarshaler.Marshal(m)
-		case "application/grpc+proto", "application/grpc":
-			buf, err = proto.Marshal(m)
-		default:
-			err = codec.ErrUnknownContentType
-		}
-	default:
-		switch c.ContentType {
-		case "application/grpc+json":
-			buf, err = json.Marshal(m)
-		default:
-			err = codec.ErrUnknownContentType
-		}
-
-	}
-	// check error
+	buf, err := c.Marshal(v)
 	if err != nil {
 		m.Header["grpc-status"] = "8"
 		m.Header["grpc-message"] = err.Error()
@@ -208,6 +214,7 @@ func (c *grpcCodec) Write(conn io.Writer, m *codec.Message, b interface{}) error
 		return nil
 	}
 
+	m.Body = buf
 	return c.encode(0, buf, conn)
 }
 
@@ -215,6 +222,6 @@ func (c *grpcCodec) String() string {
 	return "grpc"
 }
 
-func NewCodec() codec.Codec {
-	return &grpcCodec{ContentType: "application/grpc"}
+func NewCodec(opts ...codec.Option) codec.Codec {
+	return &grpcCodec{opts: codec.NewOptions(opts...), ContentType: "application/grpc"}
 }
