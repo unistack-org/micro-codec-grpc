@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/unistack-org/micro/v3/codec"
+	"go.unistack.org/micro/v3/codec"
 )
 
 var maxInt = int(^uint(0) >> 1)

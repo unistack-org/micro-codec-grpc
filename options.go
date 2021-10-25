@@ -1,7 +1,7 @@
 package grpc
 
 import (
-	codec "github.com/unistack-org/micro/v3/codec"
+	codec "go.unistack.org/micro/v3/codec"
 	jsonpb "google.golang.org/protobuf/encoding/protojson"
 )
 

@@ -8,9 +8,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/unistack-org/micro/v3/codec"
-	"github.com/unistack-org/micro/v3/metadata"
-	rutil "github.com/unistack-org/micro/v3/util/reflect"
+	"go.unistack.org/micro/v3/codec"
+	"go.unistack.org/micro/v3/metadata"
+	rutil "go.unistack.org/micro/v3/util/reflect"
 	jsonpb "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
