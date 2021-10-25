@@ -1,5 +1,5 @@
 // Package grpc provides a grpc codec
-package grpc
+package grpc // import "go.unistack.org/micro-codec-grpc/v3"
 
 import (
 	"encoding/json"
