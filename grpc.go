@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	pb "go.unistack.org/micro-proto/v3/codec"
 	"go.unistack.org/micro/v3/codec"
 	"go.unistack.org/micro/v3/metadata"
 	rutil "go.unistack.org/micro/v3/util/reflect"
@@ -80,7 +81,11 @@ func (c *grpcCodec) Unmarshal(d []byte, v interface{}, opts ...codec.Option) err
 		v = nv
 	}
 
-	if m, ok := v.(*codec.Frame); ok {
+	switch m := v.(type) {
+	case *codec.Frame:
+		m.Data = d
+		return nil
+	case *pb.Frame:
 		m.Data = d
 		return nil
 	}
@@ -124,7 +129,10 @@ func (c *grpcCodec) Marshal(v interface{}, opts ...codec.Option) ([]byte, error)
 		v = nv
 	}
 
-	if m, ok := v.(*codec.Frame); ok {
+	switch m := v.(type) {
+	case *codec.Frame:
+		return m.Data, nil
+	case *pb.Frame:
 		return m.Data, nil
 	}
 
